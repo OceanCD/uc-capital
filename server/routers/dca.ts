@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
-import yahooFinance from "yahoo-finance2";
+import YahooFinance from "yahoo-finance2";
+
+// Instantiate yahoo-finance2 v3 correctly
+const yahooFinance = new YahooFinance({ suppressNotices: ["ripHistorical"] });
 
 export const dcaRouter = router({
   getHistoricalData: publicProcedure
@@ -29,10 +32,10 @@ export const dcaRouter = router({
 
         // Return clean JSON: { "date": "2016-01-04", "adjClose": 192.34 }
         // yahoo-finance2 returns adjClose if available, otherwise we use close
-        const history = result.map((item) => ({
-          date: item.date.toISOString().split('T')[0],
-          adjClose: item.adjClose || item.close,
-        })).filter((item) => item.adjClose !== null && item.adjClose !== undefined);
+        const history = result.map((item: any) => ({
+          date: new Date(item.date).toISOString().split('T')[0],
+          adjClose: item.adjClose ?? item.close,
+        })).filter((item: any) => item.adjClose !== null && item.adjClose !== undefined);
 
         return history;
       } catch (error: any) {
