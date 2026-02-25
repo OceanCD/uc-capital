@@ -2,24 +2,22 @@
  * Home Page - UC Capital Smart Investment Terminal
  * Bloomberg Terminal Neo Style - Dark theme with gold accents
  * Features:
- * - Market indices ticker
- * - Intraday chart
+ * - Market indices ticker with S&P500/NASDAQ/BTC selector
+ * - Intraday chart (switches with selected index)
+ * - "Today's View" summary badge (scrolls to daily analysis)
  * - Stock list with click-to-detail modal (PE/PB/narrative/earnings)
  * - News module: 4-tier hierarchy + transmission chain + stock impact + 5+5 fold
+ *   + importance tags + source link + favorite + share + AI analysis (Pro)
  * - Daily market analysis: sentiment/fundamentals/technicals/weekly forecast
  * - Market stats sidebar
  */
 import { useAuth } from "@/_core/hooks/useAuth";
 import { motion, AnimatePresence } from "framer-motion";
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import {
-  TrendingUp,
-  TrendingDown,
   Activity,
-  Globe,
   Clock,
   ArrowUpRight,
-  ArrowDownRight,
   Zap,
   BarChart3,
   Newspaper,
@@ -33,11 +31,20 @@ import {
   Brain,
   Eye,
   Target,
-  AlertTriangle,
-  TrendingUp as TrendUp,
   Layers,
   Link2,
   Filter,
+  ExternalLink,
+  Heart,
+  Share2,
+  Sparkles,
+  TrendingUp,
+  Bitcoin,
+  AlertCircle,
+  CheckCircle2,
+  Lock,
+  Copy,
+  Check,
 } from "lucide-react";
 import { Link } from "wouter";
 import {
@@ -48,8 +55,6 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  BarChart,
-  Bar,
   RadarChart,
   PolarGrid,
   PolarAngleAxis,
@@ -58,7 +63,72 @@ import {
 
 const HERO_BG = "https://private-us-east-1.manuscdn.com/sessionFile/YaP317eOKyuIkprNnugzm7/sandbox/Ac3WClDop2IEMcCR2v0NAv-img-1_1771981296000_na1fn_aGVyby1iZw.jpg?x-oss-process=image/resize,w_1920,h_1920/format,webp/quality,q_80&Expires=1798761600&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly9wcml2YXRlLXVzLWVhc3QtMS5tYW51c2Nkbi5jb20vc2Vzc2lvbkZpbGUvWWFQMzE3ZU9LeXVJa3ByTm51Z3ptNy9zYW5kYm94L0FjM1dDbERvcDJJRU1jQ1IydjBOQXYtaW1nLTFfMTc3MTk4MTI5NjAwMF9uYTFmbl9hR1Z5YnkxaVp3LmpwZz94LW9zcy1wcm9jZXNzPWltYWdlL3Jlc2l6ZSx3XzE5MjAsaF8xOTIwL2Zvcm1hdCx3ZWJwL3F1YWxpdHkscV84MCIsIkNvbmRpdGlvbiI6eyJEYXRlTGVzc1RoYW4iOnsiQVdTOkVwb2NoVGltZSI6MTc5ODc2MTYwMH19fV19&Key-Pair-Id=K2HSFNDJXOU9YS&Signature=FCTVzl0wJQGA86lQKf6vji736Am6rFAEMGT2C-fEC-rZ9f8a8bpTof78Sfi1AXza3FMkez0VI0XP5igKzgjMDmNbNQrEMiMvd6Phh5gdAv2ipI18rTg3uvgbqxc0URQmWwMF29rxgNUCZLRvDLgwR0P91MJhiqO7MdSmnJX~hBDl5uFFExRfT7aRGuwUI-j85nJ-JHJqBq175d3HdZPzEJ0hG7ArrkPyzZWlEiW16rVTLYfeBy22QVNNT~0iznCBsUKED7vRyS~RFxETfytU6s9MyA236ZUrOgJ-FvFzRyLXxzD~ga7j06GnyrGWxTYS7Ov68T9bg30DpqV0zTmc2w__";
 
-// ─── Market Indices ───
+// ─── Market Index Selector Config ───
+type IndexKey = "SP500" | "NASDAQ" | "BTC";
+
+const indexConfig: Record<IndexKey, {
+  label: string;
+  value: string;
+  change: string;
+  up: boolean;
+  color: string;
+  gradientId: string;
+  basePrice: number;
+  icon: React.ReactNode;
+}> = {
+  SP500: {
+    label: "S&P 500",
+    value: "5,983.25",
+    change: "+1.24%",
+    up: true,
+    color: "#D4A853",
+    gradientId: "goldGrad",
+    basePrice: 5920,
+    icon: <TrendingUp className="w-3.5 h-3.5" />,
+  },
+  NASDAQ: {
+    label: "NASDAQ",
+    value: "19,456.78",
+    change: "+1.68%",
+    up: true,
+    color: "#60A5FA",
+    gradientId: "blueGrad",
+    basePrice: 19300,
+    icon: <BarChart3 className="w-3.5 h-3.5" />,
+  },
+  BTC: {
+    label: "BTC/USD",
+    value: "95,234.50",
+    change: "+3.21%",
+    up: true,
+    color: "#F97316",
+    gradientId: "orangeGrad",
+    basePrice: 93000,
+    icon: <Bitcoin className="w-3.5 h-3.5" />,
+  },
+};
+
+// Generate intraday data per index
+function generateIntradayData(basePrice: number, seed: number) {
+  return Array.from({ length: 78 }, (_, i) => {
+    const hour = 9 + Math.floor((i * 5) / 60);
+    const min = (i * 5) % 60;
+    const noise = Math.sin(i * 0.15 + seed) * (basePrice * 0.003) + Math.sin(i * 0.07 + seed * 2) * (basePrice * 0.002);
+    const trend = i * (basePrice * 0.00015);
+    return {
+      time: `${hour}:${min.toString().padStart(2, "0")}`,
+      value: Math.round((basePrice + trend + noise) * 100) / 100,
+    };
+  });
+}
+
+const intradayDataMap: Record<IndexKey, { time: string; value: number }[]> = {
+  SP500: generateIntradayData(5920, 1),
+  NASDAQ: generateIntradayData(19300, 2.5),
+  BTC: generateIntradayData(93000, 4.2),
+};
+
+// ─── Market Indices Ticker ───
 const marketIndices = [
   { name: "S&P 500", value: "5,983.25", change: "+1.24%", up: true, sparkline: [45, 48, 46, 52, 50, 55, 58, 56, 60, 62] },
   { name: "NASDAQ", value: "19,456.78", change: "+1.68%", up: true, sparkline: [40, 42, 38, 45, 48, 50, 52, 49, 55, 58] },
@@ -136,13 +206,16 @@ const topStocks: StockDetail[] = [
 
 // ─── News with 4-tier hierarchy + transmission chain + stock impact ───
 type NewsTier = "宏观" | "产业" | "行业" | "个股";
+type NewsImportance = "极重要" | "重要" | "一般";
 
 interface NewsItem {
   id: number;
   time: string;
   tier: NewsTier;
+  importance: NewsImportance;
   title: string;
   source: string;
+  sourceUrl: string;
   sentiment: "positive" | "negative" | "neutral";
   transmissionChain: string[];
   stockImpact: { symbol: string; impact: "positive" | "negative" | "neutral"; note: string }[];
@@ -150,9 +223,10 @@ interface NewsItem {
 
 const newsItems: NewsItem[] = [
   {
-    id: 1, time: "10:32", tier: "宏观",
+    id: 1, time: "10:32", tier: "宏观", importance: "极重要",
     title: "美联储会议纪要释放鸽派信号，市场预期6月降息概率升至72%",
-    source: "Reuters", sentiment: "positive",
+    source: "Reuters", sourceUrl: "https://www.reuters.com",
+    sentiment: "positive",
     transmissionChain: ["Fed维持利率不变", "会议纪要措辞偏鸽", "降息预期提前至6月", "美债收益率下行", "成长股估值扩张"],
     stockImpact: [
       { symbol: "NVDA", impact: "positive", note: "利率下行利好高估值成长股" },
@@ -161,9 +235,10 @@ const newsItems: NewsItem[] = [
     ],
   },
   {
-    id: 2, time: "09:45", tier: "产业",
+    id: 2, time: "09:45", tier: "产业", importance: "重要",
     title: "全球AI基础设施投资2026年预计突破$3000亿，同比增长45%",
-    source: "Bloomberg", sentiment: "positive",
+    source: "Bloomberg", sourceUrl: "https://www.bloomberg.com",
+    sentiment: "positive",
     transmissionChain: ["企业AI预算大幅增加", "云厂商资本开支上调", "GPU/ASIC需求激增", "AI芯片供应链受益", "算力基础设施扩张"],
     stockImpact: [
       { symbol: "NVDA", impact: "positive", note: "GPU需求直接受益" },
@@ -172,9 +247,10 @@ const newsItems: NewsItem[] = [
     ],
   },
   {
-    id: 3, time: "09:12", tier: "宏观",
+    id: 3, time: "09:12", tier: "宏观", importance: "重要",
     title: "中国2月PMI回升至51.2，制造业连续三个月处于扩张区间",
-    source: "CNBC", sentiment: "positive",
+    source: "CNBC", sourceUrl: "https://www.cnbc.com",
+    sentiment: "positive",
     transmissionChain: ["中国PMI超预期", "制造业需求回暖", "全球供应链信心提升", "大宗商品需求预期上调", "新兴市场资金流入"],
     stockImpact: [
       { symbol: "AAPL", impact: "positive", note: "大中华区消费复苏利好iPhone销售" },
@@ -182,18 +258,20 @@ const newsItems: NewsItem[] = [
     ],
   },
   {
-    id: 4, time: "08:30", tier: "个股",
+    id: 4, time: "08:30", tier: "个股", importance: "重要",
     title: "特斯拉Q4交付量49.5万辆不及预期，盘前下跌2.5%",
-    source: "WSJ", sentiment: "negative",
+    source: "WSJ", sourceUrl: "https://www.wsj.com",
+    sentiment: "negative",
     transmissionChain: ["Q4交付不及预期", "市场担忧需求放缓", "竞争对手份额提升", "毛利率压力持续", "短期估值承压"],
     stockImpact: [
       { symbol: "TSLA", impact: "negative", note: "交付量miss直接利空" },
     ],
   },
   {
-    id: 5, time: "08:15", tier: "行业",
+    id: 5, time: "08:15", tier: "行业", importance: "重要",
     title: "GLP-1减肥药市场规模预测上调至$1500亿，礼来/诺和诺德双寡头格局稳固",
-    source: "FT", sentiment: "positive",
+    source: "FT", sourceUrl: "https://www.ft.com",
+    sentiment: "positive",
     transmissionChain: ["肥胖症患者基数庞大", "GLP-1临床数据持续积极", "适应症扩展至心血管/NASH", "市场TAM预测上调", "双寡头定价权增强"],
     stockImpact: [
       { symbol: "LLY", impact: "positive", note: "Mounjaro/Zepbound市场份额领先" },
@@ -201,9 +279,10 @@ const newsItems: NewsItem[] = [
     ],
   },
   {
-    id: 6, time: "07:50", tier: "产业",
+    id: 6, time: "07:50", tier: "产业", importance: "一般",
     title: "苹果Vision Pro二代曝光，搭载M5芯片，预计2026年Q3发布",
-    source: "Bloomberg", sentiment: "positive",
+    source: "Bloomberg", sourceUrl: "https://www.bloomberg.com",
+    sentiment: "positive",
     transmissionChain: ["Vision Pro二代研发推进", "空间计算生态扩展", "开发者应用数量增长", "AR/VR产业链受益", "消费电子创新周期"],
     stockImpact: [
       { symbol: "AAPL", impact: "positive", note: "新品类拓展增长空间" },
@@ -211,9 +290,10 @@ const newsItems: NewsItem[] = [
     ],
   },
   {
-    id: 7, time: "07:30", tier: "宏观",
+    id: 7, time: "07:30", tier: "宏观", importance: "一般",
     title: "欧央行暗示4月可能再次降息，欧元兑美元跌破1.08",
-    source: "ECB", sentiment: "neutral",
+    source: "ECB", sourceUrl: "https://www.ecb.europa.eu",
+    sentiment: "neutral",
     transmissionChain: ["欧央行释放鸽派信号", "欧元区经济增长乏力", "欧元走弱美元走强", "跨国企业汇兑影响", "美股跨国公司承压"],
     stockImpact: [
       { symbol: "GOOGL", impact: "negative", note: "海外收入占比高，美元走强不利" },
@@ -221,9 +301,10 @@ const newsItems: NewsItem[] = [
     ],
   },
   {
-    id: 8, time: "07:15", tier: "行业",
+    id: 8, time: "07:15", tier: "行业", importance: "重要",
     title: "全球半导体销售额1月同比增长22%，AI芯片贡献超40%增量",
-    source: "SIA", sentiment: "positive",
+    source: "SIA", sourceUrl: "https://www.semiconductors.org",
+    sentiment: "positive",
     transmissionChain: ["半导体行业周期上行", "AI芯片需求爆发", "存储芯片价格企稳", "晶圆代工产能利用率回升", "设备厂商订单增长"],
     stockImpact: [
       { symbol: "NVDA", impact: "positive", note: "AI芯片龙头直接受益" },
@@ -232,18 +313,20 @@ const newsItems: NewsItem[] = [
     ],
   },
   {
-    id: 9, time: "06:45", tier: "个股",
+    id: 9, time: "06:45", tier: "个股", importance: "一般",
     title: "Visa宣布$50亿股票回购计划，季度股息上调12%",
-    source: "PR Newswire", sentiment: "positive",
+    source: "PR Newswire", sourceUrl: "https://www.prnewswire.com",
+    sentiment: "positive",
     transmissionChain: ["公司现金流充沛", "管理层对前景有信心", "加大股东回报力度", "EPS增厚效应", "估值支撑"],
     stockImpact: [
       { symbol: "V", impact: "positive", note: "回购+分红直接利好股价" },
     ],
   },
   {
-    id: 10, time: "06:30", tier: "宏观",
+    id: 10, time: "06:30", tier: "宏观", importance: "极重要",
     title: "原油价格突破$85/桶，OPEC+确认延长减产至Q3，地缘风险溢价上升",
-    source: "Reuters", sentiment: "neutral",
+    source: "Reuters", sourceUrl: "https://www.reuters.com",
+    sentiment: "neutral",
     transmissionChain: ["OPEC+延长减产", "地缘政治风险升温", "原油供给收紧", "能源价格上行", "通胀预期小幅回升"],
     stockImpact: [
       { symbol: "XOM", impact: "positive", note: "油价上涨直接利好" },
@@ -276,6 +359,7 @@ const sentimentData = [
 
 const dailyAnalysis = {
   date: "2026年2月25日",
+  todayView: "市场情绪偏暖，科技板块领涨，关注本周PCE数据对降息预期的影响",
   sentiment: {
     score: 68,
     label: "偏乐观",
@@ -310,19 +394,6 @@ const dailyAnalysis = {
     ],
   },
 };
-
-// ─── Intraday chart data ───
-const intradayData = Array.from({ length: 78 }, (_, i) => {
-  const hour = 9 + Math.floor((i * 5) / 60);
-  const min = (i * 5) % 60;
-  const base = 5920;
-  const noise = Math.sin(i * 0.15) * 30 + Math.random() * 15;
-  const trend = i * 0.8;
-  return {
-    time: `${hour}:${min.toString().padStart(2, "0")}`,
-    value: Math.round((base + trend + noise) * 100) / 100,
-  };
-});
 
 // ─── Animation variants ───
 const containerVariants = {
@@ -361,6 +432,24 @@ const tierColors: Record<NewsTier, string> = {
   "个股": "border-emerald-500/40 text-emerald-400 bg-emerald-500/10",
 };
 
+const importanceConfig: Record<NewsImportance, { label: string; className: string; icon: React.ReactNode }> = {
+  "极重要": {
+    label: "极重要",
+    className: "text-red-400 bg-red-500/10 border-red-500/30",
+    icon: <AlertCircle className="w-2.5 h-2.5" />,
+  },
+  "重要": {
+    label: "重要",
+    className: "text-amber-400 bg-amber-500/10 border-amber-500/30",
+    icon: <CheckCircle2 className="w-2.5 h-2.5" />,
+  },
+  "一般": {
+    label: "一般",
+    className: "text-muted-foreground bg-muted/20 border-muted/30",
+    icon: null,
+  },
+};
+
 // ─── Stock Detail Modal ───
 function StockDetailModal({ stock, onClose }: { stock: StockDetail; onClose: () => void }) {
   return (
@@ -385,7 +474,6 @@ function StockDetailModal({ stock, onClose }: { stock: StockDetail; onClose: () 
           <X className="w-5 h-5" />
         </button>
 
-        {/* Header */}
         <div className="flex items-center gap-4 mb-5">
           <div className="w-12 h-12 rounded-lg flex items-center justify-center font-mono font-bold text-sm" style={{ background: "rgba(212,168,83,0.15)", color: "#D4A853" }}>
             {stock.symbol}
@@ -401,7 +489,6 @@ function StockDetailModal({ stock, onClose }: { stock: StockDetail; onClose: () 
           </div>
         </div>
 
-        {/* Valuation */}
         <div className="grid grid-cols-3 gap-3 mb-5">
           {[
             { label: "P/E", value: stock.pe },
@@ -415,7 +502,6 @@ function StockDetailModal({ stock, onClose }: { stock: StockDetail; onClose: () 
           ))}
         </div>
 
-        {/* Narrative */}
         <div className="mb-4">
           <div className="flex items-center gap-2 mb-2">
             <Crosshair className="w-3.5 h-3.5 text-gold" />
@@ -424,7 +510,6 @@ function StockDetailModal({ stock, onClose }: { stock: StockDetail; onClose: () 
           <p className="text-sm text-muted-foreground leading-relaxed">{stock.narrative}</p>
         </div>
 
-        {/* Earnings */}
         <div>
           <div className="flex items-center gap-2 mb-2">
             <BookOpen className="w-3.5 h-3.5 text-gold" />
@@ -433,7 +518,6 @@ function StockDetailModal({ stock, onClose }: { stock: StockDetail; onClose: () 
           <p className="text-sm text-muted-foreground leading-relaxed">{stock.earnings}</p>
         </div>
 
-        {/* Volume */}
         <div className="mt-4 pt-3 border-t border-gold/10 flex justify-between text-xs font-mono text-muted-foreground">
           <span>成交量: {stock.volume}</span>
           <span>数据仅供参考</span>
@@ -443,26 +527,100 @@ function StockDetailModal({ stock, onClose }: { stock: StockDetail; onClose: () 
   );
 }
 
-// ─── News Item Component ───
-function NewsItemCard({ news, isExpanded, onToggle }: { news: NewsItem; isExpanded: boolean; onToggle: () => void }) {
+// ─── News Item Component (Enhanced) ───
+function NewsItemCard({
+  news,
+  isExpanded,
+  onToggle,
+  isFavorited,
+  onFavorite,
+}: {
+  news: NewsItem;
+  isExpanded: boolean;
+  onToggle: () => void;
+  isFavorited: boolean;
+  onFavorite: (id: number) => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [showAIToast, setShowAIToast] = useState(false);
+  const imp = importanceConfig[news.importance];
+
+  const handleShare = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    const url = `${window.location.origin}/?news=${news.id}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }, [news.id]);
+
+  const handleFavorite = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    onFavorite(news.id);
+  }, [news.id, onFavorite]);
+
+  const handleSourceLink = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    window.open(news.sourceUrl, "_blank", "noopener,noreferrer");
+  }, [news.sourceUrl]);
+
+  const handleAIAnalysis = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowAIToast(true);
+    setTimeout(() => setShowAIToast(false), 2500);
+  }, []);
+
   return (
     <motion.div
       layout
-      className="border-b border-gold/5 last:border-b-0 hover:bg-gold/5 -mx-3 px-3 rounded transition-colors cursor-pointer"
-      onClick={onToggle}
+      className="border-b border-gold/5 last:border-b-0 hover:bg-gold/5 -mx-3 px-3 rounded transition-colors"
     >
-      <div className="flex gap-3 py-3">
+      {/* AI Toast */}
+      <AnimatePresence>
+        {showAIToast && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            className="fixed top-20 left-1/2 -translate-x-1/2 z-[200] flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-mono"
+            style={{ background: "rgba(17,24,39,0.95)", border: "1px solid rgba(212,168,83,0.4)" }}
+          >
+            <Lock className="w-3.5 h-3.5 text-gold" />
+            <span className="text-foreground">AI 解读为 Pro 专属功能</span>
+            <Link href="/pricing" className="text-gold hover:underline ml-1">升级 →</Link>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Main row - clickable to expand */}
+      <div className="flex gap-3 py-3 cursor-pointer" onClick={onToggle}>
         <div className="flex flex-col items-center gap-1 pt-0.5 shrink-0">
           <span className="text-[10px] font-mono text-muted-foreground">{news.time}</span>
           <SentimentDot sentiment={news.sentiment} />
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm text-foreground leading-snug">{news.title}</p>
-          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+          <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+            {/* Tier tag */}
             <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${tierColors[news.tier]}`}>
               {news.tier}
             </span>
-            <span className="text-[10px] text-muted-foreground font-mono">{news.source}</span>
+            {/* Importance tag */}
+            {news.importance !== "一般" && (
+              <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border flex items-center gap-0.5 ${imp.className}`}>
+                {imp.icon}
+                {imp.label}
+              </span>
+            )}
+            {/* Source */}
+            <button
+              onClick={handleSourceLink}
+              className="text-[10px] text-muted-foreground font-mono hover:text-gold transition-colors flex items-center gap-0.5 group"
+            >
+              {news.source}
+              <ExternalLink className="w-2.5 h-2.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+            </button>
+            {/* Stock impact tags */}
             {news.stockImpact.map((si) => (
               <span
                 key={si.symbol}
@@ -475,7 +633,37 @@ function NewsItemCard({ news, isExpanded, onToggle }: { news: NewsItem; isExpand
             ))}
           </div>
         </div>
-        <ChevronDown className={`w-4 h-4 text-muted-foreground shrink-0 mt-1 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+
+        {/* Action buttons */}
+        <div className="flex items-center gap-1 shrink-0 ml-1">
+          {/* Favorite */}
+          <button
+            onClick={handleFavorite}
+            className={`p-1 rounded transition-colors ${isFavorited ? "text-red-400" : "text-muted-foreground hover:text-red-400"}`}
+            title="收藏"
+          >
+            <Heart className={`w-3.5 h-3.5 ${isFavorited ? "fill-current" : ""}`} />
+          </button>
+          {/* Share */}
+          <button
+            onClick={handleShare}
+            className="p-1 rounded text-muted-foreground hover:text-gold transition-colors"
+            title="复制链接"
+          >
+            {copied ? <Check className="w-3.5 h-3.5 text-profit" /> : <Share2 className="w-3.5 h-3.5" />}
+          </button>
+          {/* AI Analysis (Pro) */}
+          <button
+            onClick={handleAIAnalysis}
+            className="p-1 rounded text-muted-foreground hover:text-purple-400 transition-colors relative"
+            title="AI 解读 (Pro)"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-gold" />
+          </button>
+          {/* Expand chevron */}
+          <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ml-0.5 ${isExpanded ? "rotate-180" : ""}`} />
+        </div>
       </div>
 
       <AnimatePresence>
@@ -532,6 +720,25 @@ function NewsItemCard({ news, isExpanded, onToggle }: { news: NewsItem; isExpand
                   ))}
                 </div>
               </div>
+
+              {/* Source link at bottom */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleSourceLink}
+                  className="flex items-center gap-1.5 text-[10px] font-mono text-gold/70 hover:text-gold border border-gold/15 hover:border-gold/30 px-2 py-1 rounded transition-colors"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  查看原文 · {news.source}
+                </button>
+                <button
+                  onClick={handleAIAnalysis}
+                  className="flex items-center gap-1.5 text-[10px] font-mono text-purple-400/70 hover:text-purple-400 border border-purple-500/15 hover:border-purple-500/30 px-2 py-1 rounded transition-colors"
+                >
+                  <Sparkles className="w-3 h-3" />
+                  AI 深度解读
+                  <span className="text-[9px] px-1 py-0.5 rounded bg-gold/10 text-gold border border-gold/20">Pro</span>
+                </button>
+              </div>
             </div>
           </motion.div>
         )}
@@ -542,17 +749,35 @@ function NewsItemCard({ news, isExpanded, onToggle }: { news: NewsItem; isExpand
 
 // ─── Main Home Component ───
 export default function Home() {
-  // The userAuth hooks provides authentication state
-  // To implement login/logout functionality, simply call logout() or redirect to getLoginUrl()
-  let { user, loading, error, isAuthenticated, logout } = useAuth();
+  const { user } = useAuth();
 
+  const [selectedIndex, setSelectedIndex] = useState<IndexKey>("SP500");
   const [selectedStock, setSelectedStock] = useState<StockDetail | null>(null);
   const [expandedNews, setExpandedNews] = useState<number | null>(null);
   const [showAllNews, setShowAllNews] = useState(false);
   const [newsFilter, setNewsFilter] = useState<NewsTier | "全部">("全部");
+  const [favoritedNews, setFavoritedNews] = useState<Set<number>>(new Set());
+
+  const dailyAnalysisRef = useRef<HTMLDivElement>(null);
+
+  const currentIndex = indexConfig[selectedIndex];
+  const intradayData = intradayDataMap[selectedIndex];
 
   const filteredNews = newsFilter === "全部" ? newsItems : newsItems.filter((n) => n.tier === newsFilter);
   const visibleNews = showAllNews ? filteredNews : filteredNews.slice(0, 5);
+
+  const handleFavorite = useCallback((id: number) => {
+    setFavoritedNews((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const scrollToDailyAnalysis = useCallback(() => {
+    dailyAnalysisRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
 
   return (
     <div className="min-h-screen pt-[66px]">
@@ -577,10 +802,25 @@ export default function Home() {
                 </span>
               </div>
             </div>
-            <h1 className="text-3xl md:text-4xl font-mono font-bold text-gold-gradient mb-2">全球市场概览</h1>
-            <p className="text-muted-foreground text-sm max-w-xl">
-              实时追踪全球主要市场指数、热门个股动态与宏观新闻，为您的投资决策提供数据支撑。
-            </p>
+            <h1 className="text-3xl md:text-4xl font-mono font-bold text-gold-gradient mb-3">全球市场概览</h1>
+
+            {/* Today's View Badge */}
+            <motion.button
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.3 }}
+              onClick={scrollToDailyAnalysis}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all hover:scale-[1.02] active:scale-[0.98] group"
+              style={{
+                background: "rgba(212,168,83,0.08)",
+                borderColor: "rgba(212,168,83,0.3)",
+              }}
+            >
+              <span className="text-[10px] font-mono text-gold/70 uppercase tracking-wider">今日观点</span>
+              <span className="w-px h-3 bg-gold/20" />
+              <span className="text-xs font-mono text-foreground/90">{dailyAnalysis.todayView}</span>
+              <ChevronDown className="w-3.5 h-3.5 text-gold/60 group-hover:text-gold transition-colors ml-0.5" />
+            </motion.button>
           </motion.div>
         </div>
       </section>
@@ -611,33 +851,72 @@ export default function Home() {
       <motion.div className="container py-6" variants={containerVariants} initial="hidden" animate="visible">
         {/* Row 1: Chart + Portfolio Card + Stocks */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 mb-5">
-          {/* Intraday Chart */}
+          {/* Intraday Chart with Index Selector */}
           <motion.div variants={itemVariants} className="lg:col-span-7 card-gold rounded-lg bg-card p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <BarChart3 className="w-4 h-4 text-gold" />
-                <h2 className="font-mono font-semibold text-sm text-foreground">S&P 500 日内走势</h2>
+            {/* Chart header: index selector + price */}
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+              {/* Index selector tabs */}
+              <div className="flex items-center gap-1 p-1 rounded-lg" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(212,168,83,0.1)" }}>
+                {(["SP500", "NASDAQ", "BTC"] as IndexKey[]).map((key) => {
+                  const cfg = indexConfig[key];
+                  const isActive = selectedIndex === key;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setSelectedIndex(key)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-mono font-medium transition-all"
+                      style={{
+                        background: isActive ? `${cfg.color}18` : "transparent",
+                        color: isActive ? cfg.color : "#6B7280",
+                        border: isActive ? `1px solid ${cfg.color}40` : "1px solid transparent",
+                      }}
+                    >
+                      <span style={{ color: isActive ? cfg.color : "#6B7280" }}>{cfg.icon}</span>
+                      {cfg.label}
+                    </button>
+                  );
+                })}
               </div>
+              {/* Price display */}
               <div className="flex items-center gap-2">
-                <span className="text-2xl font-mono font-bold text-foreground tabular-nums">5,983.25</span>
-                <span className="text-sm font-mono text-profit flex items-center gap-0.5">
-                  <ArrowUpRight className="w-3.5 h-3.5" />+1.24%
+                <span className="text-2xl font-mono font-bold text-foreground tabular-nums">{currentIndex.value}</span>
+                <span
+                  className="text-sm font-mono flex items-center gap-0.5"
+                  style={{ color: currentIndex.up ? "#22C55E" : "#EF4444" }}
+                >
+                  <ArrowUpRight className="w-3.5 h-3.5" />{currentIndex.change}
                 </span>
               </div>
             </div>
+
+            {/* Chart */}
             <ResponsiveContainer width="100%" height={260}>
-              <AreaChart data={intradayData}>
+              <AreaChart data={intradayData} key={selectedIndex}>
                 <defs>
                   <linearGradient id="goldGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#D4A853" stopOpacity={0.3} />
                     <stop offset="95%" stopColor="#D4A853" stopOpacity={0} />
                   </linearGradient>
+                  <linearGradient id="blueGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#60A5FA" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#60A5FA" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="orangeGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#F97316" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#F97316" stopOpacity={0} />
+                  </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(212,168,83,0.08)" />
                 <XAxis dataKey="time" tick={{ fontSize: 10, fill: "#6B7280", fontFamily: "JetBrains Mono" }} tickLine={false} axisLine={false} interval={15} />
                 <YAxis tick={{ fontSize: 10, fill: "#6B7280", fontFamily: "JetBrains Mono" }} tickLine={false} axisLine={false} domain={["auto", "auto"]} />
-                <Tooltip contentStyle={{ background: "rgba(17,24,39,0.95)", border: "1px solid rgba(212,168,83,0.3)", borderRadius: "8px", fontFamily: "JetBrains Mono", fontSize: "12px" }} />
-                <Area type="monotone" dataKey="value" stroke="#D4A853" strokeWidth={2} fill="url(#goldGrad)" />
+                <Tooltip contentStyle={{ background: "rgba(17,24,39,0.95)", border: `1px solid ${currentIndex.color}50`, borderRadius: "8px", fontFamily: "JetBrains Mono", fontSize: "12px" }} />
+                <Area
+                  type="monotone"
+                  dataKey="value"
+                  stroke={currentIndex.color}
+                  strokeWidth={2}
+                  fill={`url(#${currentIndex.gradientId})`}
+                />
               </AreaChart>
             </ResponsiveContainer>
           </motion.div>
@@ -706,7 +985,7 @@ export default function Home() {
               <Newspaper className="w-4 h-4 text-gold" />
               <h2 className="font-mono font-semibold text-sm text-foreground">实时新闻</h2>
               <div className="ml-auto flex items-center gap-1.5">
-                <div className="w-1.5 h-1.5 rounded-full bg-profit data-pulse" />
+                <div className="w-1.5 h-1.5 rounded-full bg-profit" style={{ animation: "pulse 2s infinite" }} />
                 <span className="text-[10px] font-mono text-muted-foreground">LIVE</span>
               </div>
             </div>
@@ -727,6 +1006,15 @@ export default function Home() {
                   {tier}
                 </button>
               ))}
+              {/* Importance legend */}
+              <div className="ml-auto flex items-center gap-2">
+                <span className="flex items-center gap-1 text-[9px] font-mono text-red-400">
+                  <AlertCircle className="w-2.5 h-2.5" />极重要
+                </span>
+                <span className="flex items-center gap-1 text-[9px] font-mono text-amber-400">
+                  <CheckCircle2 className="w-2.5 h-2.5" />重要
+                </span>
+              </div>
             </div>
 
             <div className="space-y-0">
@@ -736,6 +1024,8 @@ export default function Home() {
                   news={news}
                   isExpanded={expandedNews === news.id}
                   onToggle={() => setExpandedNews(expandedNews === news.id ? null : news.id)}
+                  isFavorited={favoritedNews.has(news.id)}
+                  onFavorite={handleFavorite}
                 />
               ))}
             </div>
@@ -819,7 +1109,7 @@ export default function Home() {
         </div>
 
         {/* Row 3: Daily Market Analysis */}
-        <motion.div variants={itemVariants} className="card-gold rounded-lg bg-card p-6 mb-5">
+        <motion.div ref={dailyAnalysisRef} variants={itemVariants} className="card-gold rounded-lg bg-card p-6 mb-5 scroll-mt-20">
           <div className="flex items-center gap-3 mb-6">
             <Brain className="w-5 h-5 text-gold" />
             <h2 className="font-mono font-bold text-base text-foreground">每日市场解析</h2>

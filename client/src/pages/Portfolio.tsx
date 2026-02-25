@@ -21,7 +21,10 @@ import {
   FileText,
   Crosshair,
   BookOpen,
+  Lock,
+  Sparkles,
 } from "lucide-react";
+import { Link } from "wouter";
 import {
   LineChart,
   Line,
@@ -207,9 +210,42 @@ const CustomPieLabel = ({ cx, cy, midAngle, outerRadius, name, value }: any) => 
   );
 };
 
+// Pro gate overlay for holdings detail
+function ProGateOverlay() {
+  return (
+    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-lg"
+      style={{ backdropFilter: "blur(6px)", background: "rgba(10,14,23,0.55)" }}
+    >
+      <div className="flex flex-col items-center gap-3 px-6 py-5 rounded-xl border text-center"
+        style={{ background: "rgba(10,14,23,0.85)", borderColor: "rgba(212,168,83,0.35)" }}
+      >
+        <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: "rgba(212,168,83,0.12)" }}>
+          <Lock className="w-5 h-5 text-gold" />
+        </div>
+        <div>
+          <p className="text-sm font-mono font-semibold text-foreground mb-1">Pro 专属内容</p>
+          <p className="text-xs text-muted-foreground max-w-[220px] leading-relaxed">
+            升级 Pro 解锁持仓估值、核心叙事与财报深度解读
+          </p>
+        </div>
+        <Link href="/pricing">
+          <button className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all hover:scale-[1.03] active:scale-[0.97]"
+            style={{ background: "linear-gradient(135deg, #D4A853, #B8882A)", color: "#0A0E17" }}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            升级 Pro
+          </button>
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 function HoldingRow({ h, index }: { h: Holding; index: number }) {
   const [expanded, setExpanded] = useState(false);
   const isCash = h.symbol === "CASH";
+  // First 2 holdings are visible as preview; rest are Pro-gated
+  const isPro = index >= 2;
 
   return (
     <>
@@ -252,44 +288,48 @@ function HoldingRow({ h, index }: { h: Holding; index: number }) {
             transition={{ duration: 0.25 }}
           >
             <td colSpan={6} className="p-0">
-              <div className="px-4 py-4 bg-gold/[0.03] border-b border-gold/10">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {/* Valuation */}
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-1.5 mb-2">
-                      <Crosshair className="w-3.5 h-3.5 text-gold" />
-                      <span className="text-xs font-mono text-gold uppercase tracking-wider">估值水平</span>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      <div className="bg-card/80 rounded px-2.5 py-2 border border-gold/10">
-                        <div className="text-[10px] font-mono text-muted-foreground">P/E</div>
-                        <div className="text-sm font-mono font-semibold text-foreground tabular-nums">{h.pe}</div>
+              <div className="relative px-4 py-4 bg-gold/[0.03] border-b border-gold/10 overflow-hidden">
+                {/* Pro gate overlay */}
+                {isPro && <ProGateOverlay />}
+                <div className={isPro ? "select-none" : ""}>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* Valuation */}
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-1.5 mb-2">
+                        <Crosshair className="w-3.5 h-3.5 text-gold" />
+                        <span className="text-xs font-mono text-gold uppercase tracking-wider">估值水平</span>
                       </div>
-                      <div className="bg-card/80 rounded px-2.5 py-2 border border-gold/10">
-                        <div className="text-[10px] font-mono text-muted-foreground">P/B</div>
-                        <div className="text-sm font-mono font-semibold text-foreground tabular-nums">{h.pb}</div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="bg-card/80 rounded px-2.5 py-2 border border-gold/10">
+                          <div className="text-[10px] font-mono text-muted-foreground">P/E</div>
+                          <div className="text-sm font-mono font-semibold text-foreground tabular-nums">{h.pe}</div>
+                        </div>
+                        <div className="bg-card/80 rounded px-2.5 py-2 border border-gold/10">
+                          <div className="text-[10px] font-mono text-muted-foreground">P/B</div>
+                          <div className="text-sm font-mono font-semibold text-foreground tabular-nums">{h.pb}</div>
+                        </div>
+                        <div className="bg-card/80 rounded px-2.5 py-2 border border-gold/10">
+                          <div className="text-[10px] font-mono text-muted-foreground">市值</div>
+                          <div className="text-sm font-mono font-semibold text-foreground tabular-nums">{h.marketCap}</div>
+                        </div>
                       </div>
-                      <div className="bg-card/80 rounded px-2.5 py-2 border border-gold/10">
-                        <div className="text-[10px] font-mono text-muted-foreground">市值</div>
-                        <div className="text-sm font-mono font-semibold text-foreground tabular-nums">{h.marketCap}</div>
+                    </div>
+                    {/* Narrative */}
+                    <div>
+                      <div className="flex items-center gap-1.5 mb-2">
+                        <Target className="w-3.5 h-3.5 text-gold" />
+                        <span className="text-xs font-mono text-gold uppercase tracking-wider">核心叙事</span>
                       </div>
+                      <p className="text-xs text-muted-foreground leading-relaxed">{h.narrative}</p>
                     </div>
-                  </div>
-                  {/* Narrative */}
-                  <div>
-                    <div className="flex items-center gap-1.5 mb-2">
-                      <Target className="w-3.5 h-3.5 text-gold" />
-                      <span className="text-xs font-mono text-gold uppercase tracking-wider">核心叙事</span>
+                    {/* Earnings */}
+                    <div>
+                      <div className="flex items-center gap-1.5 mb-2">
+                        <FileText className="w-3.5 h-3.5 text-gold" />
+                        <span className="text-xs font-mono text-gold uppercase tracking-wider">财报解读</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground leading-relaxed">{h.earnings}</p>
                     </div>
-                    <p className="text-xs text-muted-foreground leading-relaxed">{h.narrative}</p>
-                  </div>
-                  {/* Earnings */}
-                  <div>
-                    <div className="flex items-center gap-1.5 mb-2">
-                      <FileText className="w-3.5 h-3.5 text-gold" />
-                      <span className="text-xs font-mono text-gold uppercase tracking-wider">财报解读</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground leading-relaxed">{h.earnings}</p>
                   </div>
                 </div>
               </div>
