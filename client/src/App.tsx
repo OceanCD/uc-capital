@@ -9,6 +9,7 @@ import Portfolio from "./pages/Portfolio";
 import Advisors from "./pages/Advisors";
 import Analysis from "./pages/Analysis";
 import Pricing from "./pages/Pricing";
+import DCAPowerhouse from "./pages/DCAPowerhouse";
 import SubscriptionSuccess from "./pages/SubscriptionSuccess";
 import Navbar from "./components/Navbar";
 function Router() {
@@ -20,6 +21,7 @@ function Router() {
       <Route path={"/advisors"} component={Advisors} />
       <Route path={"/analysis"} component={Analysis} />
       <Route path={"/pricing"} component={Pricing} />
+      <Route path={"/dca"} component={DCAPowerhouse} />
       <Route path={"/subscription/success"} component={SubscriptionSuccess} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />

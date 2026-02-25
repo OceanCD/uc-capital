@@ -6,9 +6,11 @@ import { getDb } from "../db";
 import { users } from "../../drizzle/schema";
 import { PRODUCTS, type ProductKey } from "../products";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
-  apiVersion: "2026-01-28.clover",
-});
+const stripe = process.env.STRIPE_SECRET_KEY 
+  ? new Stripe(process.env.STRIPE_SECRET_KEY, {
+      apiVersion: "2026-01-28.clover",
+    })
+  : null;
 
 export const stripeRouter = router({
   /**
@@ -60,6 +62,7 @@ export const stripeRouter = router({
         sessionParams.customer_email = ctx.user.email;
       }
 
+      if (!stripe) throw new Error("Stripe is not configured");
       const session = await stripe.checkout.sessions.create(sessionParams);
 
       return { url: session.url };
@@ -117,6 +120,7 @@ export const stripeRouter = router({
         throw new Error("No Stripe customer found");
       }
 
+      if (!stripe) throw new Error("Stripe is not configured");
       const session = await stripe.billingPortal.sessions.create({
         customer: customerId,
         return_url: `${input.origin}/pricing`,

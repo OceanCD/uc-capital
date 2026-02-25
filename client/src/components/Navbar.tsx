@@ -5,7 +5,7 @@
  */
 import { Link, useLocation } from "wouter";
 import { motion } from "framer-motion";
-import { TrendingUp, BarChart3, Brain, FileText, Menu, X, Crown, CreditCard } from "lucide-react";
+import { TrendingUp, BarChart3, Brain, FileText, Menu, X, Crown, CreditCard, Calculator } from "lucide-react";
 import { useState } from "react";
 
 const LOGO_URL = "https://private-us-east-1.manuscdn.com/sessionFile/YaP317eOKyuIkprNnugzm7/sandbox/Ac3WClDop2IEMcCR2v0NAv-img-4_1771981296000_na1fn_bG9nby1pY29u.png?x-oss-process=image/resize,w_1920,h_1920/format,webp/quality,q_80&Expires=1798761600&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly9wcml2YXRlLXVzLWVhc3QtMS5tYW51c2Nkbi5jb20vc2Vzc2lvbkZpbGUvWWFQMzE3ZU9LeXVJa3ByTm51Z3ptNy9zYW5kYm94L0FjM1dDbERvcDJJRU1jQ1IydjBOQXYtaW1nLTRfMTc3MTk4MTI5NjAwMF9uYTFmbl9iRzluYnkxcFkyOXUucG5nP3gtb3NzLXByb2Nlc3M9aW1hZ2UvcmVzaXplLHdfMTkyMCxoXzE5MjAvZm9ybWF0LHdlYnAvcXVhbGl0eSxxXzgwIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzk4NzYxNjAwfX19XX0_&Key-Pair-Id=K2HSFNDJXOU9YS&Signature=gqM93T8NOI-aG~XzlFm-rRjAjtmGIm5sXGGBPTkq2M4yGXTq7KDGDFR2iQEg0MDpMIlQtHEwWsQczUsQ2k5yQcqSeAVlY8ktiHQDJ~7b58PKzWvfPcmII0PCsEzAKRfNXC0yZrY3RhgLhe7eQvkSDeBUoItPD-xiy3zNkq~PuoH~c3XtLV~eQCe2lBXM0t5IEGCE5CCCTCZK2-oN4ZW63ecszbj-lR60k99VfZPmNU5YkOzjs8lXmARiOnJhJLZFidn6qpn7bZVV-oLsjTkqDcCpd3dZafniQa5VRm3iCDdDmdElki~MbEHOM79fbHTPQKxGAx3sjZSGnFFmTYqjLA__";
@@ -15,6 +15,7 @@ const navItems = [
   { href: "/portfolio", label: "旗舰组合", icon: BarChart3, badge: null },
   { href: "/advisors", label: "AI 顾问", icon: Brain, badge: "Pro" },
   { href: "/analysis", label: "组合分析", icon: FileText, badge: "Pro" },
+  { href: "/dca", label: "DCA Powerhouse", icon: Calculator, badge: null },
   { href: "/pricing", label: "订阅 Pro", icon: Crown, badge: null },
 ];
 

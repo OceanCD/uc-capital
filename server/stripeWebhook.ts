@@ -4,9 +4,11 @@ import { eq } from "drizzle-orm";
 import { getDb } from "./db";
 import { users } from "../drizzle/schema";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
-  apiVersion: "2026-01-28.clover",
-});
+const stripe = process.env.STRIPE_SECRET_KEY
+  ? new Stripe(process.env.STRIPE_SECRET_KEY, {
+      apiVersion: "2026-01-28.clover",
+    })
+  : null;
 
 export function registerStripeWebhook(app: Express) {
   // MUST use express.raw before express.json for signature verification
@@ -23,6 +25,10 @@ export function registerStripeWebhook(app: Express) {
         if (!sig || !webhookSecret) {
           console.warn("[Webhook] Missing signature or webhook secret");
           return res.status(400).json({ error: "Missing signature" });
+        }
+        if (!stripe) {
+          console.warn("[Webhook] Stripe is not configured, skipping event construction");
+          return res.status(400).json({ error: "Stripe not configured" });
         }
         event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
       } catch (err: unknown) {
