@@ -1,0 +1,106 @@
+import express, { type Express } from "express";
+import Stripe from "stripe";
+import { eq } from "drizzle-orm";
+import { getDb } from "./db";
+import { users } from "../drizzle/schema";
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
+  apiVersion: "2026-01-28.clover",
+});
+
+export function registerStripeWebhook(app: Express) {
+  // MUST use express.raw before express.json for signature verification
+  app.post(
+    "/api/stripe/webhook",
+    express.raw({ type: "application/json" }),
+    async (req, res) => {
+      const sig = req.headers["stripe-signature"];
+      const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+      let event: Stripe.Event;
+
+      try {
+        if (!sig || !webhookSecret) {
+          console.warn("[Webhook] Missing signature or webhook secret");
+          return res.status(400).json({ error: "Missing signature" });
+        }
+        event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        console.error("[Webhook] Signature verification failed:", message);
+        return res.status(400).json({ error: `Webhook Error: ${message}` });
+      }
+
+      // ⚠️ CRITICAL: Handle test events
+      if (event.id.startsWith("evt_test_")) {
+        console.log("[Webhook] Test event detected, returning verification response");
+        return res.json({ verified: true });
+      }
+
+      console.log(`[Webhook] Event received: ${event.type} (${event.id})`);
+
+      try {
+        switch (event.type) {
+          case "checkout.session.completed": {
+            const session = event.data.object as Stripe.Checkout.Session;
+            const userId = session.metadata?.user_id;
+            const customerId = session.customer as string;
+            const subscriptionId = session.subscription as string;
+
+            if (userId) {
+              const db = await getDb();
+              if (db) {
+                await db
+                  .update(users)
+                  .set({
+                    stripeCustomerId: customerId || null,
+                    stripeSubscriptionId: subscriptionId || null,
+                    subscriptionStatus: "pro",
+                  })
+                  .where(eq(users.id, parseInt(userId)));
+                console.log(`[Webhook] User ${userId} upgraded to Pro`);
+              }
+            }
+            break;
+          }
+
+          case "customer.subscription.deleted":
+          case "customer.subscription.updated": {
+            const subscription = event.data.object as Stripe.Subscription;
+            const customerId = subscription.customer as string;
+            const status = subscription.status;
+
+            const db = await getDb();
+            if (db) {
+              const isActive = status === "active" || status === "trialing";
+              const endsAt =
+                subscription.cancel_at
+                  ? new Date(subscription.cancel_at * 1000)
+                  : null;
+
+              await db
+                .update(users)
+                .set({
+                  subscriptionStatus: isActive ? "pro" : "cancelled",
+                  subscriptionEndsAt: endsAt,
+                })
+                .where(eq(users.stripeCustomerId, customerId));
+              console.log(
+                `[Webhook] Subscription ${subscription.id} status: ${status}`
+              );
+            }
+            break;
+          }
+
+          default:
+            console.log(`[Webhook] Unhandled event type: ${event.type}`);
+        }
+      } catch (err) {
+        console.error("[Webhook] Error processing event:", err);
+        return res.status(500).json({ error: "Internal server error" });
+      }
+
+      res.json({ received: true });
+    }
+  );
+}

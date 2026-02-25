@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1771987014973,
+      "tag": "0000_rapid_firedrake",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1771987098315,
+      "tag": "0001_mean_jigsaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1771987265804,
+      "tag": "0002_light_mongu",
+      "breakpoints": true
+    }
+  ]
+}

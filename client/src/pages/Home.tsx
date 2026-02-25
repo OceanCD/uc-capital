@@ -9,6 +9,7 @@
  * - Daily market analysis: sentiment/fundamentals/technicals/weekly forecast
  * - Market stats sidebar
  */
+import { useAuth } from "@/_core/hooks/useAuth";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState } from "react";
 import {
@@ -541,6 +542,10 @@ function NewsItemCard({ news, isExpanded, onToggle }: { news: NewsItem; isExpand
 
 // ─── Main Home Component ───
 export default function Home() {
+  // The userAuth hooks provides authentication state
+  // To implement login/logout functionality, simply call logout() or redirect to getLoginUrl()
+  let { user, loading, error, isAuthenticated, logout } = useAuth();
+
   const [selectedStock, setSelectedStock] = useState<StockDetail | null>(null);
   const [expandedNews, setExpandedNews] = useState<number | null>(null);
   const [showAllNews, setShowAllNews] = useState(false);
