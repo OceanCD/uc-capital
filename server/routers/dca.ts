@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
-import { callDataApi } from "../_core/dataApi";
+import yahooFinance from "yahoo-finance2";
 
 export const dcaRouter = router({
   getHistoricalData: publicProcedure
@@ -13,33 +13,34 @@ export const dcaRouter = router({
     )
     .query(async ({ input }) => {
       try {
-        // Using Yahoo Finance API via callDataApi
-        const result = await callDataApi("YahooFinance/chart", {
-          pathParams: { symbol: input.symbol },
-          query: {
-            period1: Math.floor(new Date(input.from).getTime() / 1000),
-            period2: Math.floor(new Date(input.to).getTime() / 1000),
-            interval: "1d",
-          },
-        }) as any;
+        const { symbol, from, to } = input;
+        
+        // Fetch historical data using yahoo-finance2
+        // We use '1d' interval for daily data
+        const result = await yahooFinance.historical(symbol, {
+          period1: from,
+          period2: to,
+          interval: "1d",
+        });
 
-        if (!result || !result.chart || !result.chart.result || result.chart.result.length === 0) {
-          throw new Error(`No data found for ${input.symbol}`);
+        if (!result || result.length === 0) {
+          throw new Error(`No data found for ${symbol} in the specified period.`);
         }
 
-        const data = result.chart.result[0];
-        const timestamps = data.timestamp;
-        const quotes = data.indicators.quote[0];
-        const adjClose = data.indicators.adjclose?.[0]?.adjclose || quotes.close;
-
-        const history = timestamps.map((ts: number, i: number) => ({
-          date: new Date(ts * 1000).toISOString().split('T')[0],
-          price: adjClose[i],
-        })).filter((item: any) => item.price !== null);
+        // Return clean JSON: { "date": "2016-01-04", "adjClose": 192.34 }
+        // yahoo-finance2 returns adjClose if available, otherwise we use close
+        const history = result.map((item) => ({
+          date: item.date.toISOString().split('T')[0],
+          adjClose: item.adjClose || item.close,
+        })).filter((item) => item.adjClose !== null && item.adjClose !== undefined);
 
         return history;
       } catch (error: any) {
         console.error(`Error fetching data for ${input.symbol}:`, error);
+        // Handle specific yahoo-finance2 errors if needed
+        if (error.name === 'YahooFinanceError') {
+          throw new Error(`Yahoo Finance error: ${error.message}`);
+        }
         throw new Error(error.message || "Failed to fetch historical data");
       }
     }),

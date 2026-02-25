@@ -12,6 +12,7 @@ import {
   Calculator,
   LineChart as LineChartIcon,
   Table as TableIcon,
+  Loader2,
 } from "lucide-react";
 import {
   LineChart,
@@ -23,7 +24,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
-import { format, subYears, isBefore, isAfter, startOfMonth, addWeeks, addMonths, addDays } from "date-fns";
+import { format, subYears, isBefore, addWeeks, addMonths, parseISO, differenceInDays } from "date-fns";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -47,16 +48,17 @@ interface DCAStats {
   cagr: number;
   purchases: number;
   maxDrawdown: number;
+  isLumpSum?: boolean;
 }
 
 export default function DCAPowerhouse() {
-  const [amount, setAmount] = useState<number>(100);
+  const [amount, setAmount] = useState<number>(1000);
   const [frequency, setFrequency] = useState<Frequency>("monthly");
   const [startDate, setStartDate] = useState<Date>(subYears(new Date(), 10));
   const [endDate, setEndDate] = useState<Date>(new Date());
   const [tickerInput, setTickerInput] = useState("");
-  const [tickers, setTickers] = useState<string[]>(["VTI", "QQQ"]);
-  const [compareLumpSum, setCompareLumpSum] = useState(false);
+  const [tickers, setTickers] = useState<string[]>(["2800.HK", "SPY", "QQQ"]);
+  const [compareLumpSum, setCompareLumpSum] = useState(true);
 
   const [results, setResults] = useState<{
     chartData: any[];
@@ -88,77 +90,134 @@ export default function DCAPowerhouse() {
     try {
       const allData = await Promise.all(
         tickers.map(async (symbol) => {
-          const data = await utils.client.dca.getHistoricalData.query({
-            symbol,
-            from: format(startDate, "yyyy-MM-dd"),
-            to: format(endDate, "yyyy-MM-dd"),
-          });
-          return { symbol, data };
+          try {
+            const data = await utils.client.dca.getHistoricalData.query({
+              symbol,
+              from: format(startDate, "yyyy-MM-dd"),
+              to: format(endDate, "yyyy-MM-dd"),
+            });
+            return { symbol, data };
+          } catch (err) {
+            console.error(`Error fetching ${symbol}:`, err);
+            toast.error(`Failed to fetch data for ${symbol}`);
+            return { symbol, data: [] };
+          }
         })
       );
 
-      // Process DCA for each ticker
+      const validData = allData.filter(d => d.data.length > 0);
+      if (validData.length === 0) {
+        throw new Error("No valid data found for any of the tickers.");
+      }
+
       const stats: DCAStats[] = [];
       const chartDataMap: Record<string, any> = {};
 
-      allData.forEach(({ symbol, data }) => {
-        if (data.length === 0) return;
-
-        let totalInvested = 0;
-        let totalShares = 0;
-        let purchases = 0;
-        let maxPortfolioValue = 0;
-        let maxDrawdown = 0;
-
-        const tickerChartData: { date: string; value: number }[] = [];
+      validData.forEach(({ symbol, data }) => {
+        const sortedData = [...data].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        
+        // DCA Strategy
+        let dcaTotalInvested = 0;
+        let dcaTotalShares = 0;
+        let dcaPurchases = 0;
+        let dcaMaxPortfolioValue = 0;
+        let dcaMaxDrawdown = 0;
         
         let nextPurchaseDate = startDate;
-        const sortedData = [...data].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-        sortedData.forEach((day) => {
-          const currentDate = new Date(day.date);
-          
+        // Lump Sum Strategy
+        let lsTotalInvested = 0;
+        let lsTotalShares = 0;
+        let lsMaxPortfolioValue = 0;
+        let lsMaxDrawdown = 0;
+        let lsInitialized = false;
+
+        sortedData.forEach((day, index) => {
+          const currentDate = parseISO(day.date);
+          const price = day.adjClose;
+
+          // DCA Logic
           if (!isBefore(currentDate, nextPurchaseDate)) {
-            totalInvested += amount;
-            totalShares += amount / day.price;
-            purchases++;
+            dcaTotalInvested += amount;
+            dcaTotalShares += amount / price;
+            dcaPurchases++;
 
-            // Set next purchase date
             if (frequency === "weekly") nextPurchaseDate = addWeeks(nextPurchaseDate, 1);
             else if (frequency === "bi-weekly") nextPurchaseDate = addWeeks(nextPurchaseDate, 2);
             else if (frequency === "monthly") nextPurchaseDate = addMonths(nextPurchaseDate, 1);
             else if (frequency === "quarterly") nextPurchaseDate = addMonths(nextPurchaseDate, 3);
           }
 
-          const currentValue = totalShares * day.price;
-          tickerChartData.push({ date: day.date, value: currentValue });
+          const dcaCurrentValue = dcaTotalShares * price;
+          if (dcaCurrentValue > dcaMaxPortfolioValue) dcaMaxPortfolioValue = dcaCurrentValue;
+          const dcaDD = dcaMaxPortfolioValue > 0 ? (dcaMaxPortfolioValue - dcaCurrentValue) / dcaMaxPortfolioValue : 0;
+          if (dcaDD > dcaMaxDrawdown) dcaMaxDrawdown = dcaDD;
 
-          if (currentValue > maxPortfolioValue) maxPortfolioValue = currentValue;
-          const dd = maxPortfolioValue > 0 ? (maxPortfolioValue - currentValue) / maxPortfolioValue : 0;
-          if (dd > maxDrawdown) maxDrawdown = dd;
+          // Lump Sum Logic (Invest all at once on the first available day)
+          if (compareLumpSum) {
+            if (!lsInitialized) {
+              // We need to know total DCA investment to compare fairly
+              // But we don't know it until the end. 
+              // Usually Lump Sum comparison means investing the SAME total amount at the start.
+              // Let's estimate total investment or just use a fixed large amount.
+              // A better way: Calculate total DCA investment first, then run LS.
+            }
+          }
+
+          if (!chartDataMap[day.date]) chartDataMap[day.date] = { date: day.date };
+          chartDataMap[day.date][symbol] = Math.round(dcaCurrentValue * 100) / 100;
         });
 
-        const finalValue = totalShares * sortedData[sortedData.length - 1].price;
-        const totalReturn = ((finalValue - totalInvested) / totalInvested) * 100;
-        
-        // CAGR calculation
-        const years = sortedData.length / 252; // Approx trading days
-        const cagr = (Math.pow(finalValue / totalInvested, 1 / years) - 1) * 100;
+        // Finalize DCA Stats
+        const dcaFinalValue = dcaTotalShares * sortedData[sortedData.length - 1].adjClose;
+        const dcaTotalReturn = ((dcaFinalValue - dcaTotalInvested) / dcaTotalInvested) * 100;
+        const years = differenceInDays(parseISO(sortedData[sortedData.length - 1].date), parseISO(sortedData[0].date)) / 365.25;
+        const dcaCagr = (Math.pow(dcaFinalValue / dcaTotalInvested, 1 / years) - 1) * 100;
 
         stats.push({
           symbol,
-          totalInvested,
-          finalValue,
-          totalReturn,
-          cagr,
-          purchases,
-          maxDrawdown: maxDrawdown * 100,
+          totalInvested: dcaTotalInvested,
+          finalValue: dcaFinalValue,
+          totalReturn: dcaTotalReturn,
+          cagr: dcaCagr,
+          purchases: dcaPurchases,
+          maxDrawdown: dcaMaxDrawdown * 100,
         });
 
-        tickerChartData.forEach(d => {
-          if (!chartDataMap[d.date]) chartDataMap[d.date] = { date: d.date };
-          chartDataMap[d.date][symbol] = Math.round(d.value * 100) / 100;
-        });
+        // Lump Sum Comparison (Fair comparison: invest total DCA amount at start)
+        if (compareLumpSum) {
+          const lsTotalInvestedVal = dcaTotalInvested;
+          const lsInitialPrice = sortedData[0].adjClose;
+          const lsShares = lsTotalInvestedVal / lsInitialPrice;
+          
+          let lsMaxVal = 0;
+          let lsMaxDD = 0;
+          
+          sortedData.forEach((day) => {
+            const val = lsShares * day.adjClose;
+            if (val > lsMaxVal) lsMaxVal = val;
+            const dd = (lsMaxVal - val) / lsMaxVal;
+            if (dd > lsMaxDD) lsMaxDD = dd;
+            
+            const lsKey = `${symbol} (LS)`;
+            chartDataMap[day.date][lsKey] = Math.round(val * 100) / 100;
+          });
+
+          const lsFinalValue = lsShares * sortedData[sortedData.length - 1].adjClose;
+          const lsTotalReturn = ((lsFinalValue - lsTotalInvestedVal) / lsTotalInvestedVal) * 100;
+          const lsCagr = (Math.pow(lsFinalValue / lsTotalInvestedVal, 1 / years) - 1) * 100;
+
+          stats.push({
+            symbol: `${symbol} (LS)`,
+            totalInvested: lsTotalInvestedVal,
+            finalValue: lsFinalValue,
+            totalReturn: lsTotalReturn,
+            cagr: lsCagr,
+            purchases: 1,
+            maxDrawdown: lsMaxDD * 100,
+            isLumpSum: true,
+          });
+        }
       });
 
       const chartData = Object.values(chartDataMap).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -173,9 +232,10 @@ export default function DCAPowerhouse() {
 
   const exportCSV = () => {
     if (!results) return;
-    const headers = ["Symbol", "Total Invested", "Final Value", "Total Return %", "CAGR %", "Purchases", "Max Drawdown %"];
+    const headers = ["Symbol", "Type", "Total Invested", "Final Value", "Total Return %", "CAGR %", "Purchases", "Max Drawdown %"];
     const rows = results.stats.map(s => [
       s.symbol,
+      s.isLumpSum ? "Lump Sum" : "DCA",
       s.totalInvested.toFixed(2),
       s.finalValue.toFixed(2),
       s.totalReturn.toFixed(2),
@@ -201,17 +261,17 @@ export default function DCAPowerhouse() {
     return [...results.stats].sort((a, b) => b.totalReturn - a.totalReturn)[0];
   }, [results]);
 
-  const colors = ["#D4A853", "#22C55E", "#3B82F6", "#8B5CF6", "#F59E0B", "#EF4444"];
+  const colors = ["#D4A853", "#22C55E", "#3B82F6", "#8B5CF6", "#F59E0B", "#EF4444", "#EC4899", "#06B6D4"];
 
   return (
-    <div className="flex flex-col gap-6 max-w-7xl mx-auto">
+    <div className="flex flex-col gap-6 max-w-7xl mx-auto p-4 md:p-6">
       <div className="flex flex-col gap-2">
         <h1 className="text-3xl font-bold tracking-tight text-gold flex items-center gap-2">
           <Calculator className="w-8 h-8" />
           DCA Powerhouse
         </h1>
         <p className="text-muted-foreground">
-          Run advanced Dollar-Cost Averaging backtests to discover the most effective investment strategies.
+          Compare Dollar-Cost Averaging vs Lump Sum strategies with real historical data.
         </p>
       </div>
 
@@ -220,14 +280,14 @@ export default function DCAPowerhouse() {
         <Card className="lg:col-span-4 border-gold/20 bg-card/50 backdrop-blur-sm">
           <CardHeader>
             <CardTitle className="text-lg">Strategy Configuration</CardTitle>
-            <CardDescription>Define your DCA parameters</CardDescription>
+            <CardDescription>Define your investment parameters</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             <div className="space-y-2">
-              <Label>Tickers</Label>
+              <Label>Tickers (US or HK)</Label>
               <div className="flex gap-2">
                 <Input 
-                  placeholder="e.g. VTI, AAPL, BTC-USD" 
+                  placeholder="e.g. SPY, 2800.HK, BTC-USD" 
                   value={tickerInput}
                   onChange={(e) => setTickerInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && addTicker()}
@@ -250,14 +310,14 @@ export default function DCAPowerhouse() {
             <div className="space-y-2">
               <Label>DCA Amount ($)</Label>
               <div className="flex items-center gap-2">
-                <Button variant="outline" size="icon" onClick={() => setAmount(Math.max(50, amount - 50))} className="h-8 w-8">-</Button>
+                <Button variant="outline" size="icon" onClick={() => setAmount(Math.max(10, amount - 100))} className="h-8 w-8">-</Button>
                 <Input 
                   type="number" 
                   value={amount} 
                   onChange={(e) => setAmount(Number(e.target.value))}
                   className="text-center bg-background/50"
                 />
-                <Button variant="outline" size="icon" onClick={() => setAmount(amount + 50)} className="h-8 w-8">+</Button>
+                <Button variant="outline" size="icon" onClick={() => setAmount(amount + 100)} className="h-8 w-8">+</Button>
               </div>
             </div>
 
@@ -317,12 +377,28 @@ export default function DCAPowerhouse() {
               </div>
             </div>
 
+            <div className="flex items-center space-x-2 py-2">
+              <input 
+                type="checkbox" 
+                id="lumpsum" 
+                checked={compareLumpSum} 
+                onChange={(e) => setCompareLumpSum(e.target.checked)}
+                className="w-4 h-4 rounded border-gold/30 text-gold focus:ring-gold bg-background/50"
+              />
+              <Label htmlFor="lumpsum" className="cursor-pointer">Compare to Lump Sum</Label>
+            </div>
+
             <Button 
-              className="w-full mt-4 bg-gold hover:bg-gold/90 text-black font-bold shadow-lg shadow-gold/20"
+              className="w-full mt-2 bg-gold hover:bg-gold/90 text-black font-bold shadow-lg shadow-gold/20"
               onClick={runBacktest}
               disabled={loading}
             >
-              {loading ? "Calculating..." : "Run Backtest"}
+              {loading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Calculating...
+                </>
+              ) : "Run Backtest"}
             </Button>
           </CardContent>
         </Card>
@@ -336,7 +412,7 @@ export default function DCAPowerhouse() {
               </div>
               <h3 className="text-xl font-semibold text-foreground/70">Ready to analyze</h3>
               <p className="text-muted-foreground max-w-xs mt-2">
-                Configure your strategy on the left and click "Run Backtest" to see the results.
+                Configure your strategy and click "Run Backtest" to see real historical performance.
               </p>
             </div>
           ) : (
@@ -357,7 +433,7 @@ export default function DCAPowerhouse() {
                       </div>
                       <div className="text-right">
                         <p className="text-sm text-muted-foreground">Total Return</p>
-                        <p className="text-3xl font-bold text-profit">+{bestTicker.totalReturn.toFixed(2)}%</p>
+                        <p className="text-3xl font-bold text-green-500">+{bestTicker.totalReturn.toFixed(2)}%</p>
                       </div>
                     </CardContent>
                   </Card>
@@ -369,7 +445,7 @@ export default function DCAPowerhouse() {
                 <CardHeader className="flex flex-row items-center justify-between">
                   <div>
                     <CardTitle className="text-lg">Equity Curve</CardTitle>
-                    <CardDescription>Portfolio value over time</CardDescription>
+                    <CardDescription>Portfolio value over time (USD)</CardDescription>
                   </div>
                   <Button variant="ghost" size="sm" onClick={exportCSV} className="text-gold hover:text-gold hover:bg-gold/10">
                     <Download className="w-4 h-4 mr-2" />
@@ -384,7 +460,7 @@ export default function DCAPowerhouse() {
                         dataKey="date" 
                         stroke="#6b7280" 
                         fontSize={12} 
-                        tickFormatter={(str) => format(new Date(str), "MMM yy")}
+                        tickFormatter={(str) => format(parseISO(str), "MMM yy")}
                         minTickGap={30}
                       />
                       <YAxis 
@@ -396,15 +472,17 @@ export default function DCAPowerhouse() {
                         contentStyle={{ backgroundColor: '#0a0e17', borderColor: 'rgba(212,168,83,0.3)', borderRadius: '8px' }}
                         labelStyle={{ color: '#9ca3af', marginBottom: '4px' }}
                         formatter={(value: number) => [`$${value.toLocaleString()}`, "Value"]}
+                        labelFormatter={(label) => format(parseISO(label as string), "PPP")}
                       />
                       <Legend />
-                      {tickers.map((t, i) => (
+                      {results.stats.map((s, i) => (
                         <Line 
-                          key={t}
+                          key={s.symbol}
                           type="monotone" 
-                          dataKey={t} 
+                          dataKey={s.symbol} 
                           stroke={colors[i % colors.length]} 
-                          strokeWidth={2} 
+                          strokeWidth={s.isLumpSum ? 1 : 2} 
+                          strokeDasharray={s.isLumpSum ? "5 5" : "0"}
                           dot={false}
                           activeDot={{ r: 4, strokeWidth: 0 }}
                         />
@@ -423,35 +501,44 @@ export default function DCAPowerhouse() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="hover:bg-transparent border-gold/10">
-                        <TableHead>Ticker</TableHead>
-                        <TableHead className="text-right">Total Invested</TableHead>
-                        <TableHead className="text-right">Final Value</TableHead>
-                        <TableHead className="text-right">Total Return</TableHead>
-                        <TableHead className="text-right">CAGR</TableHead>
-                        <TableHead className="text-right">Drawdown</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {results.stats.map((s, i) => (
-                        <TableRow key={s.symbol} className="border-gold/5 hover:bg-gold/5">
-                          <TableCell className="font-bold flex items-center gap-2">
-                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: colors[i % colors.length] }} />
-                            {s.symbol}
-                          </TableCell>
-                          <TableCell className="text-right tabular-nums">${s.totalInvested.toLocaleString()}</TableCell>
-                          <TableCell className="text-right tabular-nums font-medium">${s.finalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</TableCell>
-                          <TableCell className={cn("text-right tabular-nums font-bold", s.totalReturn >= 0 ? "text-profit" : "text-loss")}>
-                            {s.totalReturn >= 0 ? "+" : ""}{s.totalReturn.toFixed(2)}%
-                          </TableCell>
-                          <TableCell className="text-right tabular-nums">{s.cagr.toFixed(2)}%</TableCell>
-                          <TableCell className="text-right tabular-nums text-loss">-{s.maxDrawdown.toFixed(2)}%</TableCell>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="hover:bg-transparent border-gold/10">
+                          <TableHead>Strategy</TableHead>
+                          <TableHead className="text-right">Invested</TableHead>
+                          <TableHead className="text-right">Final Value</TableHead>
+                          <TableHead className="text-right">Return</TableHead>
+                          <TableHead className="text-right">CAGR</TableHead>
+                          <TableHead className="text-right">Max DD</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                      </TableHeader>
+                      <TableBody>
+                        {results.stats.map((s, i) => (
+                          <TableRow key={s.symbol} className="border-gold/5 hover:bg-gold/5">
+                            <TableCell className="font-bold">
+                              <div className="flex items-center gap-2">
+                                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: colors[i % colors.length] }} />
+                                <div className="flex flex-col">
+                                  <span>{s.symbol}</span>
+                                  <span className="text-[10px] text-muted-foreground font-normal">
+                                    {s.isLumpSum ? "Lump Sum" : `DCA ${frequency}`}
+                                  </span>
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">${s.totalInvested.toLocaleString()}</TableCell>
+                            <TableCell className="text-right tabular-nums font-medium">${s.finalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</TableCell>
+                            <TableCell className={cn("text-right tabular-nums font-bold", s.totalReturn >= 0 ? "text-green-500" : "text-red-500")}>
+                              {s.totalReturn >= 0 ? "+" : ""}{s.totalReturn.toFixed(2)}%
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">{s.cagr.toFixed(2)}%</TableCell>
+                            <TableCell className="text-right tabular-nums text-red-400">-{s.maxDrawdown.toFixed(2)}%</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </CardContent>
               </Card>
             </>
@@ -461,45 +548,56 @@ export default function DCAPowerhouse() {
 
       {/* Educational Section */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
-        <Card className="bg-gold/5 border-gold/10">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-bold flex items-center gap-2">
-              <Info className="w-4 h-4 text-gold" />
-              What is DCA?
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Dollar-Cost Averaging (DCA) is an investment strategy where you invest a fixed amount of money at regular intervals, regardless of the asset's price. This helps reduce the impact of volatility.
-            </p>
-          </CardContent>
-        </Card>
-        <Card className="bg-gold/5 border-gold/10">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-bold flex items-center gap-2">
-              <ArrowUpRight className="w-4 h-4 text-gold" />
-              Why CAGR?
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Compound Annual Growth Rate (CAGR) represents the mean annual growth rate of an investment over a specified period of time longer than one year. It provides a "smoothed" annual return.
-            </p>
-          </CardContent>
-        </Card>
-        <Card className="bg-gold/5 border-gold/10">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-bold flex items-center gap-2">
-              <ArrowDownRight className="w-4 h-4 text-gold" />
-              Max Drawdown
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Max Drawdown is the maximum observed loss from a peak to a trough of a portfolio, before a new peak is attained. it's a key indicator of downside risk.
-            </p>
-          </CardContent>
-        </Card>
+        <TooltipProvider>
+          <Card className="bg-gold/5 border-gold/10">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-bold flex items-center gap-2">
+                <ShadedTooltip>
+                  <TooltipTrigger><Info className="w-4 h-4 text-gold" /></TooltipTrigger>
+                  <TooltipContent>Dollar-Cost Averaging strategy details</TooltipContent>
+                </ShadedTooltip>
+                What is DCA?
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Dollar-Cost Averaging (DCA) is an investment strategy where you invest a fixed amount of money at regular intervals. This helps reduce the impact of volatility by buying more shares when prices are low and fewer when prices are high.
+              </p>
+            </CardContent>
+          </Card>
+          <Card className="bg-gold/5 border-gold/10">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-bold flex items-center gap-2">
+                <ShadedTooltip>
+                  <TooltipTrigger><ArrowUpRight className="w-4 h-4 text-gold" /></TooltipTrigger>
+                  <TooltipContent>Compound Annual Growth Rate</TooltipContent>
+                </ShadedTooltip>
+                Why CAGR?
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Compound Annual Growth Rate (CAGR) represents the mean annual growth rate of an investment over a period. It provides a "smoothed" annual return, making it easier to compare different assets or strategies.
+              </p>
+            </CardContent>
+          </Card>
+          <Card className="bg-gold/5 border-gold/10">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-bold flex items-center gap-2">
+                <ShadedTooltip>
+                  <TooltipTrigger><ArrowDownRight className="w-4 h-4 text-gold" /></TooltipTrigger>
+                  <TooltipContent>Maximum Peak-to-Trough Decline</TooltipContent>
+                </ShadedTooltip>
+                Max Drawdown
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Max Drawdown is the maximum observed loss from a peak to a trough of a portfolio. It's a critical indicator of downside risk and helps investors understand the potential "pain" of a strategy.
+              </p>
+            </CardContent>
+          </Card>
+        </TooltipProvider>
       </div>
     </div>
   );
