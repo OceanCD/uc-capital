@@ -5,34 +5,36 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
-
+import Portfolio from "./pages/Portfolio";
+import Advisors from "./pages/Advisors";
+import Analysis from "./pages/Analysis";
+import Navbar from "./components/Navbar";
 
 function Router() {
   return (
     <Switch>
       <Route path={"/"} component={Home} />
+      <Route path={"/portfolio"} component={Portfolio} />
+      <Route path={"/advisors"} component={Advisors} />
+      <Route path={"/analysis"} component={Analysis} />
       <Route path={"/404"} component={NotFound} />
-      {/* Final fallback route */}
       <Route component={NotFound} />
     </Switch>
   );
 }
 
-// NOTE: About Theme
-// - First choose a default theme according to your design style (dark or light bg), than change color palette in index.css
-//   to keep consistent foreground/background color across components
-// - If you want to make theme switchable, pass `switchable` ThemeProvider and use `useTheme` hook
-
 function App() {
   return (
     <ErrorBoundary>
-      <ThemeProvider
-        defaultTheme="light"
-        // switchable
-      >
+      <ThemeProvider defaultTheme="dark">
         <TooltipProvider>
           <Toaster />
-          <Router />
+          <div className="min-h-screen bg-background">
+            {/* Top gold accent line */}
+            <div className="gold-line fixed top-0 left-0 right-0 z-[60]" />
+            <Navbar />
+            <Router />
+          </div>
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>
