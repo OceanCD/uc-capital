@@ -1,14 +1,20 @@
 {
-  "buildCommand": "pnpm build",
+  "buildCommand": "pnpm install && pnpm build",
   "outputDirectory": "dist",
-  "framework": "vite",
+  "framework": null,
+  "installCommand": "pnpm install",
+  "functions": {
+    "api/**/*.ts": {
+      "runtime": "@vercel/node@3"
+    }
+  },
   "rewrites": [
     {
       "source": "/api/(.*)",
       "destination": "/api/$1"
     },
     {
-      "source": "/(.*)",
+      "source": "/((?!assets/).*)",
       "destination": "/index.html"
     }
   ]
