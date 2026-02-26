@@ -91,11 +91,25 @@ export default function DCAPowerhouse() {
       const allData = await Promise.all(
         tickers.map(async (symbol) => {
           try {
-            const data = await utils.client.dca.getHistoricalData.query({
-              symbol,
-              from: format(startDate, "yyyy-MM-dd"),
-              to: format(endDate, "yyyy-MM-dd"),
-            });
+            // Try tRPC first, fall back to standalone API
+            let data: { date: string; adjClose: number }[] = [];
+            try {
+              data = await utils.client.dca.getHistoricalData.query({
+                symbol,
+                from: format(startDate, "yyyy-MM-dd"),
+                to: format(endDate, "yyyy-MM-dd"),
+              });
+            } catch {
+              // Fallback to standalone API endpoint (for Vercel serverless)
+              const res = await fetch(
+                `/api/dca?symbol=${encodeURIComponent(symbol)}&from=${format(startDate, "yyyy-MM-dd")}&to=${format(endDate, "yyyy-MM-dd")}`
+              );
+              if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.error || `HTTP ${res.status}`);
+              }
+              data = await res.json();
+            }
             return { symbol, data };
           } catch (err) {
             console.error(`Error fetching ${symbol}:`, err);
